@@ -3,48 +3,49 @@
 class UrlsController < ApplicationController
   def index
     @url = Url.new
-    @urls = [
-      Url.new(short_url: '123', original_url: 'http://google.com', created_at: Time.now),
-      Url.new(short_url: '456', original_url: 'http://facebook.com', created_at: Time.now),
-      Url.new(short_url: '789', original_url: 'http://yahoo.com', created_at: Time.now)
-    ]
+    @urls = Url.latest.to_a
   end
 
   def create
-    # create a new URL record
+    short_url = Url.short_url
+    @url = Url.new(original_url: url_params[:original_url], short_url: short_url)
+
+    if @url.save
+      redirect_to action: :show, url: @url
+    else
+      flash.notice = @url.errors.full_messages.join(', ')
+
+      redirect_to root_path
+    end
   end
 
   def show
-    @url = Url.new(short_url: '123', original_url: 'http://google.com', created_at: Time.now)
-    # implement queries
-    @daily_clicks = [
-      ['1', 13],
-      ['2', 2],
-      ['3', 1],
-      ['4', 7],
-      ['5', 20],
-      ['6', 18],
-      ['7', 10],
-      ['8', 20],
-      ['9', 15],
-      ['10', 5]
-    ]
-    @browsers_clicks = [
-      ['IE', 13],
-      ['Firefox', 22],
-      ['Chrome', 17],
-      ['Safari', 7]
-    ]
-    @platform_clicks = [
-      ['Windows', 13],
-      ['macOS', 22],
-      ['Ubuntu', 17],
-      ['Other', 7]
-    ]
+    @url = Url.find_by_short_url(params[:url])
+    return render file: 'public/404.html', layout: false, status: :not_found unless @url
+
+    @daily_clicks = @url.clicks.where('created_at > ?', Time.now.beginning_of_month).
+      group('CAST( EXTRACT(day FROM created_at) AS VARCHAR)').count.to_a
+    @browsers_clicks = @url.clicks.group(:browser).count.to_a
+    @platform_clicks = @url.clicks.group(:platform).count.to_a
   end
 
   def visit
-    # params[:url]
-    # @url = find url
+    @url = Url.find_by_short_url(params[:url])
+
+    return render file: 'public/404.html', layout: false, status: :not_found unless @url
+    ActiveRecord::Base.transaction do
+      @url.clicks.create!(
+        browser: browser.name, platform: browser.platform
+      )
+      @url.update_attribute(:clicks_count, @url.clicks_count + 1)
+    end
+
+    redirect_to @url.original_url
+  end
+
+  private
+
+  def url_params
+    params.require(:url).permit(:original_url)
   end
 end
